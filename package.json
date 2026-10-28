@@ -1,0 +1,43 @@
+{
+  "name": "agent-chaos",
+  "version": "0.1.0",
+  "description": "Chaos Monkey for AI agents. Deterministic fault injection for tool calls.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Arjun Kakarlapudi",
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p playground/tsconfig.json --noEmit && vite build --config playground/vite.config.ts",
+    "test": "tsc -p tsconfig.test.json --noEmit && vitest run",
+    "dev": "vite --config playground/vite.config.ts --host 127.0.0.1",
+    "preview": "vite preview --config playground/vite.config.ts --host 127.0.0.1 --port 4173",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit && tsc -p playground/tsconfig.json --noEmit"
+  },
+  "keywords": [
+    "chaos-engineering",
+    "ai-agents",
+    "testing",
+    "fault-injection"
+  ],
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  }
+}

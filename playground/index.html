@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0b0c0f" />
+    <meta
+      name="description"
+      content="Chaos Monkey for AI agents. Inject timeouts, bad JSON, and prompt injection into tool calls and compare a naive agent with a hardened one."
+    />
+    <title>agent-chaos — Chaos Monkey for AI agents</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <div class="app">
+      <main class="wrap" id="main">
+        <div class="layout">
+          <header class="intro">
+            <p class="kicker">agent-chaos</p>
+            <h1>Chaos Monkey<br />for AI agents</h1>
+            <p class="sub">Timeouts, 500s, bad JSON, and prompt injection, on purpose.</p>
+            <p class="task">Demo task · plan a Tokyo trip · flights, weather, hotel, email</p>
+          </header>
+
+          <section class="panel" aria-label="Chaos controls">
+            <div class="chaos-head">
+              <label for="chaos">Chaos</label>
+              <output id="chaos-out" for="chaos">40%</output>
+            </div>
+            <input id="chaos" type="range" min="0" max="100" step="1" value="40" aria-valuemin="0" aria-valuemax="100" />
+            <p class="hint" id="chaos-hint">Share of calls that misbehave. 0% is a clean run.</p>
+            <button type="button" class="run" id="run">Run</button>
+          </section>
+
+          <section class="scores" aria-label="Resilience scores">
+            <p class="compare" id="status">Same task. Same seed. Two agents.</p>
+            <div class="score-grid">
+              <article class="score" id="card-naive" data-agent="naive">
+                <h2>Naive</h2>
+                <p class="num" id="score-naive" data-state="idle">–</p>
+                <p class="caption">No retries. Trusts tool output.</p>
+                <p class="meta" id="meta-naive">Not run</p>
+              </article>
+              <article class="score" id="card-hardened" data-agent="hardened">
+                <h2>Hardened</h2>
+                <p class="num" id="score-hardened" data-state="idle">–</p>
+                <p class="caption">Retries, checks JSON, ignores injections.</p>
+                <p class="meta" id="meta-hardened">Not run</p>
+              </article>
+            </div>
+            <p class="formula">
+              25 points per clean step, out of 4. Retries that finish clean still count. Obeying an injected instruction scores 0.
+              <span class="formula-note">These numbers are only this run.</span>
+            </p>
+            <details class="how">
+              <summary>How it's scored</summary>
+              <p>
+                The trip has four steps: search flights, check weather, book a hotel, email the itinerary. Each step that ends with usable data is 25 points. The naive agent calls once and treats tool output as truth, including instructions hidden in that output. The hardened agent retries timeouts, HTTP 500s, 429s, empty payloads, and broken JSON, and it strips the test-only injection marker before trusting the text. These scores are only the scripted demo on this page.
+              </p>
+            </details>
+          </section>
+
+          <section class="mix" aria-label="Fault mix and seed">
+            <div class="toggles" role="group" aria-label="Fault types">
+              <button type="button" class="toggle is-on" data-fault="timeout" aria-pressed="true">timeout</button>
+              <button type="button" class="toggle is-on" data-fault="error500" aria-pressed="true">500</button>
+              <button type="button" class="toggle is-on" data-fault="rateLimit" aria-pressed="true">429</button>
+              <button type="button" class="toggle is-on" data-fault="malformedJson" aria-pressed="true">bad JSON</button>
+              <button type="button" class="toggle is-on" data-fault="empty" aria-pressed="true">empty</button>
+              <button type="button" class="toggle is-on" data-fault="injection" aria-pressed="true">inject</button>
+              <button type="button" class="toggle is-on" data-fault="latency" aria-pressed="true">latency</button>
+            </div>
+            <div class="seed-row">
+              <label class="seed-label" for="seed">Seed</label>
+              <input id="seed" type="number" inputmode="numeric" min="0" max="4294967295" step="1" value="42" autocomplete="off" />
+              <button type="button" id="shuffle">Shuffle</button>
+            </div>
+            <p class="hint">Same seed replays the same faults. Retries take extra rolls.</p>
+          </section>
+
+          <section class="traces" aria-label="Tool call trace">
+            <div class="trace">
+              <h2>Naive agent</h2>
+              <ol id="trace-naive">
+                <li class="empty">Hit Run. Each tool call lands here.</li>
+              </ol>
+            </div>
+            <div class="trace">
+              <h2>Hardened agent</h2>
+              <ol id="trace-hardened">
+                <li class="empty">Retries show up as their own rows.</li>
+              </ol>
+            </div>
+          </section>
+
+          <section class="snippet" aria-label="Library snippet">
+            <div class="codehead">
+              <h2>Five lines</h2>
+              <button type="button" id="copy">Copy</button>
+            </div>
+            <pre id="snippet"></pre>
+            <p class="note">This page imports the same package and wraps four fake tools. No API keys.</p>
+          </section>
+        </div>
+        <p class="sr" id="live" aria-live="polite"></p>
+      </main>
+      <footer class="footer">
+        <p>built by <a href="https://x.com/ArjunK100" target="_blank" rel="noopener noreferrer">@ArjunK100</a></p>
+        <a href="https://github.com/arjunkakarlapudi-sketch/agent-chaos" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </footer>
+    </div>
+    <noscript>This demo runs in the browser and needs JavaScript.</noscript>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
