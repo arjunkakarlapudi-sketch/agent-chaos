@@ -1,84 +1,79 @@
 # agent-chaos
 
-Chaos Monkey for AI agents. Wrap your tool functions, inject deterministic faults, and see if the agent still finishes the job.
+Chaos Monkey for AI agents. Wrap the tools your agent calls, inject the same faults every time, and see if it still finishes the job.
 
-![agent-chaos playground on a phone: chaos slider, Run button, and naive versus hardened resilience scores](docs/playground-phone.png)
+**Live demo:** https://agent-chaos.vercel.app/
 
-**Live demo:** https://agent-chaos.vercel.app
+![agent-chaos on a phone: chaos slider, Run button, and naive versus hardened scores](docs/playground-phone.png)
 
 Zero runtime dependencies. ESM. Node 18+ and the browser.
 
-## Install
+Not on npm yet. Install from GitHub:
 
 ```bash
-npm install agent-chaos
+npm i github:arjunkakarlapudi-sketch/agent-chaos
 ```
 
-## Usage
+That runs the `prepare` script, which compiles `src/` to `dist/`. `package.json` points `main`, `types`, and `exports` at those built files.
+
+## Quick start
 
 ```ts
 import { chaos } from 'agent-chaos'
 
-const tools = chaos({ search, getWeather, sendEmail }, {
-  seed: 42, // same seed, same call order, same faults
-  faults: {
-    timeout: 0.1,
-    error500: 0.1,
-    malformedJson: 0.05,
-    rateLimit: 0.05,
-    empty: 0.05,
-    injection: 0.05,
-    latency: { p: 0.2, ms: [200, 3000] },
-  },
-  onFault: (event) => console.log(event),
+const tools = chaos({ search, getWeather }, {
+  seed: 42,
+  faults: { timeout: 0.1, error500: 0.1, rateLimit: 0.05, malformedJson: 0.05, empty: 0.05, injection: 0.05, latency: { p: 0.2, ms: [200, 3000] } },
 })
 
-const report = tools.__chaos.report()
+const flights = await tools.search('tokyo')
+console.log(tools.__chaos.report().totals)
 ```
 
-Types stay the real tool's types. Faults change the runtime value. One `chaos()` bag shares one PRNG, so call order is part of the replay. `reset()` clears the report and rewinds that seed.
+The wrapped functions keep the original argument types, return type, and `this`. Sync functions come back as promises.
 
 ## Faults
 
-Result faults are rolled independently, in this order. The first hit wins. The real tool is **not** called, except for injection.
+Each fault has its own probability from 0 to 1. Rolls happen in the order below. The first hit wins, so a later fault only runs if the earlier ones missed. The real tool is not called, except for injection.
 
-| Fault | What the agent sees |
+| Fault | What the caller sees |
 | --- | --- |
 | `timeout` | `TimeoutError` after `timeoutMs` (default 1000). |
 | `error500` | `ChaosHttpError` with `status` 500. |
-| `rateLimit` | `ChaosHttpError` with `status` 429 and `retryAfter` seconds. |
+| `rateLimit` | `ChaosHttpError` with `status` 429 and `retryAfter` of 1, 2, or 3 seconds. |
 | `malformedJson` | A truncated JSON string. `JSON.parse` throws. |
 | `empty` | `null`. |
-| `injection` | The real result, with a `[CHAOS-INJECTION-TEST-ONLY]` fixture appended to its strings. It says "IGNORE PREVIOUS INSTRUCTIONS…" and is a test fixture, not an instruction. |
-| `latency` | A separate roll. Waits a seeded delay inside `ms`, then the call continues. Stacks with the fault above. |
+| `injection` | The real result, with `[CHAOS-INJECTION-TEST-ONLY]` appended to every string. The text says "IGNORE PREVIOUS INSTRUCTIONS" and is a harmless test fixture. Do not act on it. |
+| `latency` | A separate roll. Waits a seeded delay inside `ms`, then the call continues. Can stack with a result fault. |
 
-Probabilities are 0 to 1. `0` skips that roll. Above 1 is treated as always.
+`0` skips that roll. Anything above `1` is treated as always. One `chaos()` bag shares one PRNG, so call order is part of the replay.
 
-## In tests
+## Seeding
+
+The generator is mulberry32. Same seed, same fault config, and same call order produce the same fault sequence in Node and the browser. A different seed produces a different sequence. If you omit `seed`, it is `1`, so a run is reproducible unless you pass a random seed yourself.
+
+`reset()` clears the report, rewinds the PRNG, and cancels any in-flight delay. A call that was waiting rejects with `agent-chaos: call cancelled by reset`.
+
+## In a test
 
 ```ts
 import { assertResilient, chaos, isChaosError } from 'agent-chaos'
 
-const tools = chaos({ search }, {
-  seed: 42,
-  faults: { timeout: 1 },
-  timeoutMs: 5,
-})
+const tools = chaos({ search }, { seed: 42, faults: { timeout: 1 }, timeoutMs: 5 })
 
 try {
   await tools.search('tokyo')
 } catch (error) {
   if (isChaosError(error)) tools.__chaos.markHandled()
+  else throw error
 }
 
 assertResilient(tools.__chaos.report(), { maxUnhandled: 0 })
 ```
 
-A result fault stays unhandled until `markHandled(callId)` (defaults to the latest call). Latency-only calls are not unhandled: the result is still real. `assertResilient` throws `ResilienceError` when unmarked result faults exceed `maxUnhandled`.
+A result fault stays unhandled until `markHandled(callId)` (the latest call, if you omit the id). Latency-only calls are not unhandled: the result is still real. `assertResilient` throws `ResilienceError` when unmarked result faults exceed `maxUnhandled`. The message names each call, tool, and fault.
 
-`report()` includes every call (`tool`, `args`, `fault`, `latency`, `outcome`, `handled`, `error`) plus `totals.byType` and `totals.byTool`.
-
-This repo: `npm install`, `npm test`, `npm run build`.
+`report()` lists every call (`tool`, `args`, `fault`, `latency`, `outcome`, `handled`, `error`) plus `totals.byType` and `totals.byTool`.
 
 ## Adapters
 
@@ -96,7 +91,7 @@ const faulted = chaos({
 
 const getWeather = tool({
   description: 'Weather for a city',
-  parameters: schema, // your existing schema
+  parameters: schema,
   execute: (input) => faulted.getWeather(input),
 })
 ```
@@ -104,8 +99,6 @@ const getWeather = tool({
 ### OpenAI function calling
 
 ```ts
-import { chaos } from 'agent-chaos'
-
 const faulted = chaos({
   get_weather: async (args: { city: string }) => realGetWeather(args),
 }, { seed: 7, faults: { rateLimit: 0.2, timeout: 0.1 } })
@@ -121,9 +114,6 @@ async function dispatch(call: { name: string; arguments: string }) {
 ### LangChain-style tools
 
 ```ts
-import { DynamicTool } from '@langchain/core/tools'
-import { chaos } from 'agent-chaos'
-
 const faulted = chaos({
   search: async (query: string) => realSearch(query),
 }, { seed: 7, faults: { empty: 0.2, malformedJson: 0.1 } })
@@ -138,15 +128,12 @@ const search = new DynamicTool({
 })
 ```
 
-## Deploy
+## Playground
 
-Import the repo on Vercel. [`vercel.json`](vercel.json) sets it:
+[`vercel.json`](vercel.json) builds with `npm run build` and serves `playground/dist`. The page runs a scripted Tokyo trip in the browser with this library. No backend and no API keys. The chaos slider is the share of calls that get a result fault. Demo waits are shortened (timeout 80ms, latency 24-70ms). Pass your own `timeoutMs` and `latency.ms` in real tests.
 
-- Build command: `npm run build`
-- Output directory: `playground/dist`
-
-The playground is a static Vite site. It runs a scripted trip-planning agent in the browser with this library. No backend and no API keys. Demo waits are shortened (timeout 90ms, latency 40–180ms) so you can watch the run. Pass your own `timeoutMs` and `latency.ms` in real tests.
+This repo: `npm install`, `npm test`, `npm run build`.
 
 ## License
 
-MIT © 2026 Arjun Kakarlapudi
+[MIT](LICENSE) © 2026 Arjun Kakarlapudi

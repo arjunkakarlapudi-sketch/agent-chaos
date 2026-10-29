@@ -48,9 +48,13 @@ export interface ChaosOptions {
   timeoutMs?: number
 }
 
-export type ToolFn = (...args: any[]) => unknown
+/** A tool function. Wrappers keep the original argument list, `this`, and return type. */
+export type ToolFn = (...args: never[]) => unknown
+
+type PromisifyThis<F> = unknown extends ThisParameterType<F> ? unknown : ThisParameterType<F>
 
 export type Promisify<F extends ToolFn> = (
+  this: PromisifyThis<F>,
   ...args: Parameters<F>
 ) => Promise<Awaited<ReturnType<F>>>
 

@@ -5,22 +5,43 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#0b0c0f" />
+    <title>agent-chaos: Chaos Monkey for AI agents</title>
     <meta
       name="description"
-      content="Chaos Monkey for AI agents. Inject timeouts, bad JSON, and prompt injection into tool calls and compare a naive agent with a hardened one."
+      content="We break the tools your AI agent uses, on purpose, to see if it survives. Deterministic timeouts, 500s, bad JSON, and test-only prompt injection."
     />
-    <title>agent-chaos — Chaos Monkey for AI agents</title>
+    <link rel="canonical" href="https://agent-chaos.vercel.app/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://agent-chaos.vercel.app/" />
+    <meta property="og:title" content="agent-chaos: Chaos Monkey for AI agents" />
+    <meta
+      property="og:description"
+      content="We break the tools your AI agent uses, on purpose, to see if it survives."
+    />
+    <meta property="og:image" content="https://agent-chaos.vercel.app/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="agent-chaos: Chaos Monkey for AI agents" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="agent-chaos: Chaos Monkey for AI agents" />
+    <meta
+      name="twitter:description"
+      content="We break the tools your AI agent uses, on purpose, to see if it survives."
+    />
+    <meta name="twitter:image" content="https://agent-chaos.vercel.app/og.png" />
+    <meta name="twitter:image:alt" content="agent-chaos: Chaos Monkey for AI agents" />
+    <meta name="twitter:creator" content="@ArjunK100" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   </head>
   <body>
     <div class="app">
       <main class="wrap" id="main">
         <div class="layout">
-          <header class="intro">
+          <div class="stack controls">
+<header class="intro">
             <p class="kicker">agent-chaos</p>
             <h1>Chaos Monkey<br />for AI agents</h1>
-            <p class="sub">Timeouts, 500s, bad JSON, and prompt injection, on purpose.</p>
-            <p class="task">Demo task · plan a Tokyo trip · flights, weather, hotel, email</p>
+            <p class="sub">We break the tools your AI agent uses, on purpose, to see if it survives.</p>
           </header>
 
           <section class="panel" aria-label="Chaos controls">
@@ -28,37 +49,21 @@
               <label for="chaos">Chaos</label>
               <output id="chaos-out" for="chaos">40%</output>
             </div>
-            <input id="chaos" type="range" min="0" max="100" step="1" value="40" aria-valuemin="0" aria-valuemax="100" />
-            <p class="hint" id="chaos-hint">Share of calls that misbehave. 0% is a clean run.</p>
+            <input
+              id="chaos"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value="40"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow="40"
+              aria-valuetext="40%"
+              aria-describedby="chaos-hint"
+            />
+            <p class="hint" id="chaos-hint">Share of calls that misbehave. 0% is a clean run. 100% breaks every call.</p>
             <button type="button" class="run" id="run">Run</button>
-          </section>
-
-          <section class="scores" aria-label="Resilience scores">
-            <p class="compare" id="status">Same task. Same seed. Two agents.</p>
-            <div class="score-grid">
-              <article class="score" id="card-naive" data-agent="naive">
-                <h2>Naive</h2>
-                <p class="num" id="score-naive" data-state="idle">–</p>
-                <p class="caption">No retries. Trusts tool output.</p>
-                <p class="meta" id="meta-naive">Not run</p>
-              </article>
-              <article class="score" id="card-hardened" data-agent="hardened">
-                <h2>Hardened</h2>
-                <p class="num" id="score-hardened" data-state="idle">–</p>
-                <p class="caption">Retries, checks JSON, ignores injections.</p>
-                <p class="meta" id="meta-hardened">Not run</p>
-              </article>
-            </div>
-            <p class="formula">
-              25 points per clean step, out of 4. Retries that finish clean still count. Obeying an injected instruction scores 0.
-              <span class="formula-note">These numbers are only this run.</span>
-            </p>
-            <details class="how">
-              <summary>How it's scored</summary>
-              <p>
-                The trip has four steps: search flights, check weather, book a hotel, email the itinerary. Each step that ends with usable data is 25 points. The naive agent calls once and treats tool output as truth, including instructions hidden in that output. The hardened agent retries timeouts, HTTP 500s, 429s, empty payloads, and broken JSON, and it strips the test-only injection marker before trusting the text. These scores are only the scripted demo on this page.
-              </p>
-            </details>
           </section>
 
           <section class="mix" aria-label="Fault mix and seed">
@@ -73,37 +78,124 @@
             </div>
             <div class="seed-row">
               <label class="seed-label" for="seed">Seed</label>
-              <input id="seed" type="number" inputmode="numeric" min="0" max="4294967295" step="1" value="42" autocomplete="off" />
+              <input id="seed" type="number" inputmode="numeric" min="0" max="4294967295" step="1" value="42" autocomplete="off" aria-describedby="seed-hint" />
               <button type="button" id="shuffle">Shuffle</button>
+              <button type="button" id="copy-link">Copy link</button>
             </div>
-            <p class="hint">Same seed replays the same faults. Retries take extra rolls.</p>
+            <p class="hint" id="seed-hint">Same seed replays the same faults. Retries roll again. Demo task: plan a Tokyo trip.</p>
           </section>
 
-          <section class="traces" aria-label="Tool call trace">
-            <div class="trace">
-              <h2>Naive agent</h2>
-              <ol id="trace-naive">
-                <li class="empty">Hit Run. Each tool call lands here.</li>
-              </ol>
+                    </div>
+          <div class="stack results">
+<section class="scores" aria-label="Resilience scores">
+            <p class="compare" id="status" aria-live="polite" aria-atomic="true">Same task. Same seed. Two agents.</p>
+            <div class="score-grid">
+              <article class="score" id="card-naive" data-agent="naive">
+                <h2>Naive</h2>
+                <p class="num" id="score-naive" data-state="idle">-</p>
+                <p class="caption">One try. Trusts the tool, including instructions hidden in it.</p>
+                <p class="meta" id="meta-naive">Not run</p>
+              </article>
+              <article class="score" id="card-hardened" data-agent="hardened">
+                <h2>Hardened</h2>
+                <p class="num" id="score-hardened" data-state="idle">-</p>
+                <p class="caption">Retries, checks the JSON, and treats injections as data.</p>
+                <p class="meta" id="meta-hardened">Not run</p>
+              </article>
             </div>
-            <div class="trace">
-              <h2>Hardened agent</h2>
-              <ol id="trace-hardened">
-                <li class="empty">Retries show up as their own rows.</li>
-              </ol>
-            </div>
+            <p class="formula">
+              25 points per clean step, out of 4. A retry that comes back with real data still counts. Following an injected instruction scores 0 for that step.
+              <span class="formula-note">These numbers are only this run.</span>
+            </p>
+            <details class="how">
+              <summary>How it's scored</summary>
+              <p>
+                The trip has four steps: search flights, check weather, book a hotel, email the itinerary. Each step that ends with usable data is 25 points. The naive agent calls once. A timeout, 500, 429, empty payload, or broken JSON crashes that step. If the tool text says to ignore previous instructions, the naive agent follows it and the step scores 0.
+              </p>
+              <p>
+                The hardened agent retries timeouts and HTTP 500s with backoff, waits out a 429 for the retry-after value, and rejects bad JSON or an empty payload instead of crashing. It strips the test-only injection marker and keeps the real data. It does not invent a flight when the tool never answers. Unhandled is how many faults the agent did not deal with.
+              </p>
+              <p>The slider is the share of calls that get a fault. Same seed and same settings replay the same faults. Demo waits are shortened so you can watch the run.</p>
+            </details>
           </section>
+
+          <section class="trace-wrap" aria-label="Step trace">
+            <h2 class="trace-title">Four steps</h2>
+            <ol class="steps" id="trace">
+              <li class="step">
+                <p class="step-name"><span class="idx">1</span> searchFlights</p>
+                <div class="agents">
+                  <div class="agent" data-agent="naive">
+                    <span class="who">Naive</span>
+                    <span class="reaction" id="naive-reaction-0" data-tone="idle">Waiting</span>
+                    <span class="detail" id="naive-detail-0"></span>
+                  </div>
+                  <div class="agent" data-agent="hardened">
+                    <span class="who">Hardened</span>
+                    <span class="reaction" id="hardened-reaction-0" data-tone="idle">Waiting</span>
+                    <span class="detail" id="hardened-detail-0"></span>
+                  </div>
+                </div>
+              </li>
+              <li class="step">
+                <p class="step-name"><span class="idx">2</span> getWeather</p>
+                <div class="agents">
+                  <div class="agent" data-agent="naive">
+                    <span class="who">Naive</span>
+                    <span class="reaction" id="naive-reaction-1" data-tone="idle">Waiting</span>
+                    <span class="detail" id="naive-detail-1"></span>
+                  </div>
+                  <div class="agent" data-agent="hardened">
+                    <span class="who">Hardened</span>
+                    <span class="reaction" id="hardened-reaction-1" data-tone="idle">Waiting</span>
+                    <span class="detail" id="hardened-detail-1"></span>
+                  </div>
+                </div>
+              </li>
+              <li class="step">
+                <p class="step-name"><span class="idx">3</span> bookHotel</p>
+                <div class="agents">
+                  <div class="agent" data-agent="naive">
+                    <span class="who">Naive</span>
+                    <span class="reaction" id="naive-reaction-2" data-tone="idle">Waiting</span>
+                    <span class="detail" id="naive-detail-2"></span>
+                  </div>
+                  <div class="agent" data-agent="hardened">
+                    <span class="who">Hardened</span>
+                    <span class="reaction" id="hardened-reaction-2" data-tone="idle">Waiting</span>
+                    <span class="detail" id="hardened-detail-2"></span>
+                  </div>
+                </div>
+              </li>
+              <li class="step">
+                <p class="step-name"><span class="idx">4</span> emailItinerary</p>
+                <div class="agents">
+                  <div class="agent" data-agent="naive">
+                    <span class="who">Naive</span>
+                    <span class="reaction" id="naive-reaction-3" data-tone="idle">Waiting</span>
+                    <span class="detail" id="naive-detail-3"></span>
+                  </div>
+                  <div class="agent" data-agent="hardened">
+                    <span class="who">Hardened</span>
+                    <span class="reaction" id="hardened-reaction-3" data-tone="idle">Waiting</span>
+                    <span class="detail" id="hardened-detail-3"></span>
+                  </div>
+                </div>
+              </li>
+            </ol>
+          </section>
+
+                    </div>
 
           <section class="snippet" aria-label="Library snippet">
             <div class="codehead">
               <h2>Five lines</h2>
-              <button type="button" id="copy">Copy</button>
+              <button type="button" id="copy">Copy code</button>
             </div>
             <pre id="snippet"></pre>
             <p class="note">This page imports the same package and wraps four fake tools. No API keys.</p>
           </section>
         </div>
-        <p class="sr" id="live" aria-live="polite"></p>
       </main>
       <footer class="footer">
         <p>built by <a href="https://x.com/ArjunK100" target="_blank" rel="noopener noreferrer">@ArjunK100</a></p>

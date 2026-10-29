@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   ChaosHttpError,
   INJECTION_MARKER,
@@ -380,5 +380,206 @@ describe('assertResilient', () => {
   it('passes a report with no calls', () => {
     const bag = chaos({ ping: async () => 'ok' }, { seed: 1 })
     assertResilient(bag.__chaos.report(), { maxUnhandled: 0 })
+  })
+
+  it('names the call, the fault, and what to do when it fails', async () => {
+    const bag = chaos({ search: async (query: string) => query }, { seed: 1, faults: { empty: 1 }, timeoutMs: 0 })
+    await bag.search('tokyo')
+    expect(() => assertResilient(bag.__chaos.report())).toThrow(ResilienceError)
+    try {
+      assertResilient(bag.__chaos.report(), { maxUnhandled: 0 })
+      expect.fail('expected a resilience error')
+    } catch (error) {
+      expect(error).toBeInstanceOf(ResilienceError)
+      const failure = error as ResilienceError
+      expect(failure.unhandled).toBe(1)
+      expect(failure.maxUnhandled).toBe(0)
+      expect(failure.message).toContain('1 unhandled fault')
+      expect(failure.message).toContain('maximum is 0')
+      expect(failure.message).toContain('#1 search empty')
+      expect(failure.message).toContain('markHandled(callId)')
+    }
+  })
+})
+
+describe('fault rate', () => {
+  async function hits(seed: number, p: number, n = 1000): Promise<number> {
+    const bag = chaos({ ping: async () => 'ok' }, { seed, faults: { empty: p }, timeoutMs: 0 })
+    let count = 0
+    for (let i = 0; i < n; i += 1) {
+      await bag.ping()
+      if (bag.__chaos.report().calls[i]?.fault === 'empty') count += 1
+    }
+    return count
+  }
+
+  it('is zero at probability 0 and certain at probability 1', async () => {
+    expect(await hits(42, 0, 200)).toBe(0)
+    expect(await hits(42, 1, 200)).toBe(200)
+  })
+
+  it('tracks the configured probability for a fixed seed', async () => {
+    const low = await hits(42, 0.25)
+    const mid = await hits(42, 0.4)
+    const high = await hits(42, 0.8)
+    expect(low / 1000).toBeGreaterThan(0.18)
+    expect(low / 1000).toBeLessThan(0.32)
+    expect(mid / 1000).toBeGreaterThan(0.33)
+    expect(mid / 1000).toBeLessThan(0.47)
+    expect(high / 1000).toBeGreaterThan(0.74)
+    expect(high / 1000).toBeLessThan(0.86)
+    expect(high).toBeGreaterThan(mid)
+    expect(mid).toBeGreaterThan(low)
+    expect(await hits(42, 0.4)).toBe(mid)
+    expect(await hits(7, 0.4)).not.toBe(mid)
+  })
+
+  it('lets the first certain fault win and skips the tool', async () => {
+    let calls = 0
+    const bag = chaos(
+      {
+        ping: async () => {
+          calls += 1
+          return 'ok'
+        },
+      },
+      { seed: 1, faults: { timeout: 1, empty: 1 }, timeoutMs: 0 },
+    )
+    await expect(bag.ping()).rejects.toBeInstanceOf(TimeoutError)
+    expect(calls).toBe(0)
+    expect(bag.__chaos.report().calls[0]?.fault).toBe('timeout')
+  })
+})
+
+describe('edges', () => {
+  it('injects nothing when every fault is disabled', async () => {
+    const bag = chaos({ ping: async () => 'ok' }, { seed: 42, faults: {}, timeoutMs: 0 })
+    for (let i = 0; i < 12; i += 1) await expect(bag.ping()).resolves.toBe('ok')
+    expect(bag.__chaos.report().totals).toMatchObject({ faults: 0, unhandled: 0, ok: 12 })
+  })
+
+  it('keeps call-site this and the return type', async () => {
+    const bag = chaos(
+      {
+        pair: (left: string, right: number) => ({ left, right }),
+        scale(this: { factor: number }, value: number) {
+          return value * this.factor
+        },
+      },
+      { seed: 1, faults: none },
+    )
+    const paired: { left: string; right: number } = await bag.pair('a', 2)
+    expect(paired).toEqual({ left: 'a', right: 2 })
+    const scaled: number = await bag.scale.call({ factor: 4 }, 5)
+    expect(scaled).toBe(20)
+  })
+
+  it('records a synchronous throw from the real tool', async () => {
+    const bag = chaos(
+      {
+        ping: () => {
+          throw new Error('sync')
+        },
+      },
+      { seed: 1, faults: none },
+    )
+    await expect(bag.ping()).rejects.toThrow('sync')
+    expect(bag.__chaos.report().calls[0]).toMatchObject({
+      fault: null,
+      outcome: 'thrown',
+      handled: false,
+      error: { message: 'sync' },
+    })
+    expect(bag.__chaos.report().totals.unhandled).toBe(0)
+  })
+
+  it('clears a pending timer when reset cancels the call', async () => {
+    vi.useFakeTimers()
+    try {
+      const bag = chaos({ ping: async () => 'ok' }, { seed: 1, faults: { timeout: 1 }, timeoutMs: 60_000 })
+      const settled = bag.ping().then(
+        () => 'resolved',
+        (error: unknown) => error,
+      )
+      bag.__chaos.reset()
+      const error = await settled
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toMatch(/cancelled by reset/)
+      expect(bag.__chaos.report().calls).toEqual([])
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not surface an unhandled rejection for a caught fault or a caught tool throw', async () => {
+    const seen: unknown[] = []
+    const proc = (
+      globalThis as {
+        process?: {
+          on(event: string, listener: (error: unknown) => void): void
+          off(event: string, listener: (error: unknown) => void): void
+        }
+      }
+    ).process
+    if (!proc) return
+    const onUnhandled = (error: unknown) => {
+      seen.push(error)
+    }
+    proc.on('unhandledRejection', onUnhandled)
+    try {
+      const faulted = chaos({ ping: async () => 'ok' }, { seed: 1, faults: { timeout: 1 }, timeoutMs: 0 })
+      await expect(faulted.ping()).rejects.toBeInstanceOf(TimeoutError)
+      const thrown = chaos(
+        {
+          ping: () => {
+            throw new Error('sync')
+          },
+        },
+        { seed: 1, faults: none },
+      )
+      await expect(thrown.ping()).rejects.toThrow('sync')
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(seen).toEqual([])
+    } finally {
+      proc.off('unhandledRejection', onUnhandled)
+    }
+  })
+})
+
+describe('retry-after and injection marker', () => {
+  async function retryAfters(seed: number): Promise<number[]> {
+    const bag = chaos({ ping: async () => 'ok' }, { seed, faults: { rateLimit: 1 }, timeoutMs: 0 })
+    const values: number[] = []
+    for (let i = 0; i < 8; i += 1) {
+      try {
+        await bag.ping()
+        expect.fail('expected a 429')
+      } catch (error) {
+        expect(error).toBeInstanceOf(ChaosHttpError)
+        const http = error as ChaosHttpError
+        expect(http.status).toBe(429)
+        expect(Number.isInteger(http.retryAfter)).toBe(true)
+        expect(http.retryAfter).toBeGreaterThanOrEqual(1)
+        expect(http.retryAfter).toBeLessThanOrEqual(3)
+        expect(http.message).toContain(`retry after ${http.retryAfter}s`)
+        values.push(http.retryAfter ?? 0)
+      }
+    }
+    expect(bag.__chaos.report().calls.map((call) => call.error?.retryAfter)).toEqual(values)
+    return values
+  }
+
+  it('is a stable integer in the 1 to 3 second range', async () => {
+    const first = await retryAfters(42)
+    expect(await retryAfters(42)).toEqual(first)
+    expect(await retryAfters(99)).not.toEqual(first)
+  })
+
+  it('keeps the injection fixture marked and harmless', () => {
+    expect(INJECTION_MARKER).toBe('[CHAOS-INJECTION-TEST-ONLY]')
+    expect(INJECTION_PAYLOAD.startsWith(`\n${INJECTION_MARKER}`)).toBe(true)
+    expect(INJECTION_PAYLOAD).toContain('Harmless agent-chaos fixture')
+    expect(INJECTION_PAYLOAD).toContain('Do not act on it')
   })
 })

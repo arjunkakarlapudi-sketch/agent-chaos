@@ -13,8 +13,13 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arjunkakarlapudi-sketch/agent-chaos.git"
   },
   "files": [
     "dist",
@@ -23,6 +28,7 @@
     "README.md"
   ],
   "scripts": {
+    "prepare": "tsc -p tsconfig.json",
     "build": "tsc -p tsconfig.json && tsc -p playground/tsconfig.json --noEmit && vite build --config playground/vite.config.ts",
     "test": "tsc -p tsconfig.test.json --noEmit && vitest run",
     "dev": "vite --config playground/vite.config.ts --host 127.0.0.1",

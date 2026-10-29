@@ -10,7 +10,11 @@
     "forceConsistentCasingInFileNames": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "*": ["./*"],
+      "agent-chaos": ["./src/index.ts"]
+    }
   },
   "include": ["test", "src"]
 }

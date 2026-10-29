@@ -29,9 +29,15 @@ export function assertResilient(
       : 0
   const bad = report.calls.filter((call) => call.fault !== null && !call.handled)
   if (bad.length > maxUnhandled) {
-    const detail = bad.map((call) => `#${call.id} ${call.tool} ${call.fault}`).join(', ')
+    const detail = bad
+      .map((call) => {
+        const extra = call.error ? ` (${call.error.name}: ${call.error.message})` : ''
+        return `#${call.id} ${call.tool} ${call.fault}${extra}`
+      })
+      .join('; ')
+    const noun = bad.length === 1 ? 'fault' : 'faults'
     throw new ResilienceError(
-      `agent-chaos: ${bad.length} unhandled fault(s) (max ${maxUnhandled}): ${detail}`,
+      `agent-chaos: ${bad.length} unhandled ${noun}, maximum is ${maxUnhandled}: ${detail}. Call markHandled(callId) after the agent retries or rejects the bad result.`,
       bad.length,
       maxUnhandled,
     )

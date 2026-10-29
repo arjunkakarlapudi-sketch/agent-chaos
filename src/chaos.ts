@@ -1,7 +1,7 @@
 import { ChaosHttpError, TimeoutError, isChaosError } from './errors.js'
 import { applyInjection } from './inject.js'
 import { createRng, normalizeSeed } from './prng.js'
-import { sleep } from './sleep.js'
+import { DelayCancelled, createDelays } from './sleep.js'
 import type {
   ChaosBag,
   ChaosCall,
@@ -183,8 +183,10 @@ export function chaos<T extends Record<string, ToolFn>>(
   const faults = copyFaults(options.faults)
   const timeoutMs = cleanTimeoutMs(options.timeoutMs)
   const onFault = options.onFault
+  const delays = createDelays()
   let rng = createRng(seed)
   let seq = 0
+  let epoch = 0
   const calls: ChaosCall[] = []
 
   const handle: ChaosHandle = {
@@ -193,9 +195,11 @@ export function chaos<T extends Record<string, ToolFn>>(
       return { seed, calls: calls.map(snapshotCall), totals: totalsFor(calls) }
     },
     reset() {
+      epoch += 1
       calls.length = 0
       seq = 0
       rng = createRng(seed)
+      delays.cancel()
     },
     markHandled(callId?: number) {
       const id = callId ?? calls[calls.length - 1]?.id
@@ -211,7 +215,11 @@ export function chaos<T extends Record<string, ToolFn>>(
     },
   }
 
-  async function run(name: string, fn: ToolFn, args: unknown[]): Promise<unknown> {
+  async function run(name: string, fn: ToolFn, args: unknown[], thisArg: unknown): Promise<unknown> {
+    const myEpoch = epoch
+    const failIfReset = (): void => {
+      if (myEpoch !== epoch) throw new DelayCancelled()
+    }
     const id = ++seq
     const started = performance.now()
     const record: ChaosCall = {
@@ -236,13 +244,17 @@ export function chaos<T extends Record<string, ToolFn>>(
         record.latency = true
         record.latencyMs = latency.ms
         emit(onFault, { callId: id, tool: name, type: 'latency', latencyMs: latency.ms })
-        if (latency.ms > 0) await sleep(latency.ms)
+        failIfReset()
+        if (latency.ms > 0) await delays.sleep(latency.ms)
+        failIfReset()
       }
 
       const fault = rollResultFault(rng, faults)
       if (fault === 'timeout') {
         emit(onFault, { callId: id, tool: name, type: 'timeout' })
-        if (timeoutMs > 0) await sleep(timeoutMs)
+        failIfReset()
+        if (timeoutMs > 0) await delays.sleep(timeoutMs)
+        failIfReset()
         const error = new TimeoutError(name, timeoutMs)
         record.fault = fault
         record.outcome = 'thrown'
@@ -289,7 +301,9 @@ export function chaos<T extends Record<string, ToolFn>>(
         return null
       }
 
-      const value = await Promise.resolve(fn(...args))
+      failIfReset()
+      const value = await Promise.resolve(Reflect.apply(fn, thisArg, args) as unknown)
+      failIfReset()
 
       if (fault === 'injection') {
         emit(onFault, { callId: id, tool: name, type: 'injection' })
@@ -306,6 +320,11 @@ export function chaos<T extends Record<string, ToolFn>>(
       record.durationMs = elapsed()
       return value
     } catch (error) {
+      if (error instanceof DelayCancelled) {
+        const index = calls.indexOf(record)
+        if (index !== -1) calls.splice(index, 1)
+        throw error
+      }
       if (isChaosError(error) && record.outcome === 'thrown') throw error
       record.outcome = 'thrown'
       record.handled = false
@@ -324,7 +343,9 @@ export function chaos<T extends Record<string, ToolFn>>(
     if (typeof fn !== 'function') {
       throw new TypeError(`agent-chaos: tool "${key}" is not a function`)
     }
-    const wrapped = (async (...args: unknown[]) => run(key, fn as ToolFn, args)) as Promisify<ToolFn>
+    const wrapped = function (this: unknown, ...args: unknown[]): Promise<unknown> {
+      return run(key, fn as ToolFn, args, this)
+    } as Promisify<ToolFn>
     Object.defineProperty(wrapped, 'name', { value: fn.name || key, configurable: true })
     Object.defineProperty(bag, key, { value: wrapped, enumerable: true, writable: false })
   }
